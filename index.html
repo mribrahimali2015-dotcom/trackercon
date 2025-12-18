@@ -1,0 +1,1058 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Suit Tracker (Counts → Leads Sync) + Dashboard</title>
+  <style>
+    :root{
+      --bg:#0b0c10; --card:#12141b; --fg:#e9eef7; --muted:#a8b0c2; --border:#23283a;
+      --soft:#0e1016; --btn:#1a1f2e;
+    }
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--fg); }
+    header{ padding:18px; border-bottom:1px solid var(--border); background:rgba(0,0,0,.2); position:sticky; top:0; z-index:10; }
+    h1{ margin:0; font-size:18px; }
+    main{ max-width:1400px; margin:0 auto; padding:18px; display:grid; gap:14px; }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px; }
+    .muted{ color:var(--muted); }
+    .small{ font-size:12px; }
+    label{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
+    input,select{ width:100%; padding:10px; border-radius:12px; border:1px solid var(--border); background:var(--soft); color:var(--fg); }
+    button{ padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:var(--btn); color:var(--fg); cursor:pointer; }
+    button:hover{ filter:brightness(1.08); }
+    .btn-row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+    .topline{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .inline{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .pill{ padding:6px 10px; border:1px solid var(--border); border-radius:999px; background:var(--soft); color:var(--muted); font-size:12px; display:inline-block; }
+    .tabs{ display:flex; gap:8px; flex-wrap:wrap; }
+    .tab{ border:1px solid var(--border); background:var(--soft); color:var(--muted); padding:8px 10px; border-radius:999px; cursor:pointer; font-size:12px; }
+    .tab.active{ background:var(--btn); color:var(--fg); }
+    .grid2{ display:grid; grid-template-columns:1fr; gap:14px; align-items:start; }
+    @media(min-width:1100px){ .grid2{ grid-template-columns:420px 1fr; } }
+    table{ width:100%; border-collapse:collapse; margin-top:10px; }
+    th,td{ border-bottom:1px solid var(--border); padding:10px 8px; text-align:left; font-size:13px; vertical-align:top; }
+    th{ color:var(--muted); font-weight:600; }
+    .right{ text-align:right; }
+    .hidden{ display:none; }
+    .divider{ border:0; border-top:1px solid var(--border); margin:14px 0; }
+    .mini{ padding:6px 10px; border-radius:12px; }
+    .danger{ background:#2a1212; }
+    .warn{ background:#2a2412; }
+    .ok{ background:#102415; }
+    .kpis{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:10px; }
+    @media(min-width:800px){ .kpis{ grid-template-columns:repeat(6,1fr); } }
+    .kpi{ border:1px solid var(--border); border-radius:14px; padding:12px; background:var(--soft); }
+    .kpi .num{ font-size:20px; font-weight:700; }
+    .kpi .lbl{ font-size:12px; color:var(--muted); margin-top:4px; }
+    .badge{ display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; background:var(--soft); color:var(--muted); }
+  </style>
+</head>
+
+<body>
+<header class="topline">
+  <div class="inline">
+    <h1>Suit Tracker</h1>
+    <span class="pill">Counts → Leads Sync</span>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button class="tab active" id="tabDashboard" type="button">Dashboard</button>
+    <button class="tab" id="tabCounts" type="button">Tab 1: Counts</button>
+    <button class="tab" id="tabLeads" type="button">Tab 2: Leads</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section id="viewDashboard">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h2 style="margin:0;font-size:16px;">Dashboard</h2>
+          <p class="muted" style="margin:6px 0 0;">
+            View performance by Daily / Weekly / Monthly / Quarterly / Yearly. (Synchronised across Tab 1 + Tab 2)
+          </p>
+        </div>
+
+        <div class="inline">
+          <select id="d_range" aria-label="Timeframe">
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+            <option value="month">Monthly</option>
+            <option value="quarter">Quarterly</option>
+            <option value="year">Yearly</option>
+          </select>
+          <input id="d_refDate" type="date" aria-label="Reference date" />
+          <button type="button" id="resetAll">Clear All Data</button>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="num" id="kpiNew">0</div>
+          <div class="lbl">New enquiries</div>
+        </div>
+        <div class="kpi">
+          <div class="num" id="kpiDetails">0</div>
+          <div class="lbl">Details provided</div>
+        </div>
+        <div class="kpi">
+          <div class="num" id="kpiBookedCounts">0</div>
+          <div class="lbl">Appointments booked</div>
+        </div>
+        <div class="kpi">
+          <div class="num" id="kpiAttended">0</div>
+          <div class="lbl">Appointments attended</div>
+        </div>
+        <div class="kpi">
+          <div class="num" id="kpiSales">0</div>
+          <div class="lbl">Sales</div>
+        </div>
+        <div class="kpi">
+          <div class="num" id="kpiConv">0%</div>
+          <div class="lbl">New → Booked</div>
+        </div>
+      </div>
+
+      <p class="muted small" style="margin:10px 0 0;">
+        Notes:
+        <span class="badge">Appointments booked</span> comes from Tab 1 (counts).
+        <span class="badge">Attended</span> + <span class="badge">Sales</span> come from Tab 2 lead records (status = Attended, sale = Yes).
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h2 style="margin:0;font-size:16px;">Breakdown by Source (selected timeframe)</h2>
+          <p class="muted" style="margin:6px 0 0;">See which platform is driving bookings, attendance, and sales.</p>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>New</th>
+            <th>Details</th>
+            <th>Booked</th>
+            <th>Attended</th>
+            <th>Sales</th>
+            <th>New→Details%</th>
+            <th>New→Booked%</th>
+          </tr>
+        </thead>
+        <tbody id="dashBySource"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h2 style="margin:0;font-size:16px;">Breakdown by Staff (selected timeframe)</h2>
+          <p class="muted" style="margin:6px 0 0;">Track staff performance for details captured, bookings, attendance, and sales.</p>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Staff</th>
+            <th>New</th>
+            <th>Details</th>
+            <th>Booked</th>
+            <th>Attended</th>
+            <th>Sales</th>
+            <th>New→Details%</th>
+            <th>New→Booked%</th>
+          </tr>
+        </thead>
+        <tbody id="dashByStaff"></tbody>
+      </table>
+    </section>
+  </section>
+
+  <!-- ===================== TAB 1: COUNTS ===================== -->
+  <section id="viewCounts" class="hidden">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h2 style="margin:0;font-size:16px;">Daily Counts (by Date + Source + Staff)</h2>
+          <p class="muted" style="margin:6px 0 0;">
+            Enter volume. When you increase <strong>Details provided</strong>, Tab 2 will show leads “Remaining to Enter”.
+          </p>
+        </div>
+        <div class="inline">
+          <input id="c_search" type="text" placeholder="Filter source/staff/date…" style="max-width:260px;" />
+          <button type="button" id="goDash1">Go to Dashboard</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <section class="card">
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">Add / Update Counts</h2>
+            <p class="muted small" style="margin:6px 0 0;">
+              One row per <strong>Date + Source + Staff</strong>. Use Edit in the table to change.
+            </p>
+          </div>
+          <span class="pill" id="countsModePill">Mode: Add</span>
+        </div>
+
+        <form id="countsForm">
+          <input id="c_editKey" type="hidden" />
+
+          <label>Date</label>
+          <input id="c_date" type="date" required />
+
+          <label>Source</label>
+          <select id="c_source" required>
+            <option value="">Select…</option>
+            <option>Instagram</option>
+            <option>TikTok</option>
+            <option>Google Ads</option>
+          </select>
+
+          <label>Staff (who handled the enquiries)</label>
+          <input id="c_staff" type="text" placeholder="e.g., Sam" required />
+
+          <label>New enquiries (count)</label>
+          <input id="c_new" type="number" min="0" step="1" value="0" required />
+
+          <label>Details provided (count)</label>
+          <input id="c_details" type="number" min="0" step="1" value="0" required />
+
+          <label>Appointments booked (count)</label>
+          <input id="c_booked" type="number" min="0" step="1" value="0" required />
+
+          <div class="btn-row">
+            <button type="submit" id="countsSaveBtn">Save Counts</button>
+            <button type="button" id="countsCancelBtn" class="hidden">Cancel Edit</button>
+            <button type="button" id="seedCounts">Add Sample</button>
+          </div>
+
+          <p class="muted small" style="margin:10px 0 0;">
+            Rules: Details ≤ New, Booked ≤ Details.
+          </p>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">Counts Table</h2>
+            <p class="muted" style="margin:6px 0 0;">These drive “Remaining leads to enter” in Tab 2.</p>
+          </div>
+          <button type="button" id="goLeadsFromCounts">Go to Tab 2</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Source</th><th>Staff</th>
+              <th>New</th><th>Details</th><th>Booked</th>
+              <th>Leads Entered</th><th>Remaining</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody id="countsTbody"></tbody>
+        </table>
+      </section>
+    </section>
+  </section>
+
+  <!-- ===================== TAB 2: LEADS ===================== -->
+  <section id="viewLeads" class="hidden">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h2 style="margin:0;font-size:16px;">Leads (Details Provided)</h2>
+          <p class="muted" style="margin:6px 0 0;">
+            Tab 2 is driven by Tab 1 “Details provided”. Enter lead records until Remaining reaches 0.
+          </p>
+        </div>
+        <div class="inline">
+          <input id="l_search" type="text" placeholder="Search name/phone/source…" style="max-width:260px;" />
+          <button type="button" id="goDash2">Go to Dashboard</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <section class="card">
+        <h2 style="margin:0;font-size:16px;">Remaining Leads to Enter</h2>
+        <p class="muted small" style="margin:6px 0 0;">
+          Each line is a bucket from Tab 1. Click <strong>Add Lead</strong> to enter a name/number for that bucket.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Source</th><th>Staff</th><th>Remaining</th><th class="right"></th>
+            </tr>
+          </thead>
+          <tbody id="remainingTbody"></tbody>
+        </table>
+
+        <hr class="divider">
+
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">Add / Edit Lead</h2>
+            <p class="muted small" style="margin:6px 0 0;">
+              Use Edit in the Lead List to update appointment and outcome later.
+            </p>
+          </div>
+          <span class="pill" id="leadModePill">Mode: Add</span>
+        </div>
+
+        <form id="leadForm">
+          <input id="l_editId" type="hidden" />
+
+          <label>Bucket (Date • Source • Staff)</label>
+          <select id="l_bucket" required></select>
+
+          <label>Customer name</label>
+          <input id="l_name" type="text" required />
+
+          <label>Phone number</label>
+          <input id="l_phone" type="tel" required />
+
+          <label>Appointment date (optional)</label>
+          <input id="l_apptDate" type="date" />
+
+          <label>Appointment time (optional)</label>
+          <input id="l_apptTime" type="time" />
+
+          <label>Appointment status</label>
+          <select id="l_apptStatus">
+            <option value="">—</option>
+            <option>Scheduled</option>
+            <option>Attended</option>
+            <option>Cancelled</option>
+            <option>Rescheduled</option>
+            <option>No-show</option>
+          </select>
+
+          <label>Served by (optional)</label>
+          <input id="l_servedBy" type="text" />
+
+          <label>Sale outcome (optional)</label>
+          <select id="l_sale">
+            <option value="">—</option>
+            <option value="Yes">Sale</option>
+            <option value="No">No sale</option>
+          </select>
+
+          <div class="btn-row">
+            <button type="submit" id="leadSaveBtn">Save Lead</button>
+            <button type="button" id="leadCancelBtn" class="hidden">Cancel Edit</button>
+            <button type="button" id="seedLeads">Add Sample Lead</button>
+            <button type="button" id="goCountsFromLeads">Go to Tab 1</button>
+          </div>
+
+          <p class="muted small" style="margin:10px 0 0;">
+            Dashboard updates automatically for the selected timeframe.
+          </p>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">Lead List</h2>
+            <p class="muted" style="margin:6px 0 0;">All leads entered so far.</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Source</th><th>Captured By</th>
+              <th>Name</th><th>Phone</th>
+              <th>Appt</th><th>Status</th><th>Sale</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody id="leadsTbody"></tbody>
+        </table>
+      </section>
+    </section>
+  </section>
+
+</main>
+
+<script>
+  const COUNTS_KEY = "suit_counts_v4";
+  const LEADS_KEY  = "suit_leads_v4";
+  const $ = (id) => document.getElementById(id);
+
+  function todayISO(){
+    const d=new Date(); const off=d.getTimezoneOffset();
+    return new Date(d.getTime()-off*60000).toISOString().slice(0,10);
+  }
+  function load(key){ try{return JSON.parse(localStorage.getItem(key)||"[]");}catch{return [];} }
+  function save(key, rows){ localStorage.setItem(key, JSON.stringify(rows)); }
+  function makeId(){ return (crypto?.randomUUID) ? crypto.randomUUID() : (Date.now()+"_"+Math.random().toString(16).slice(2)); }
+  function escapeHtml(s){
+    return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+  }
+  function clampInt(x){ const n=Number(x); if(!Number.isFinite(n)||n<0) return 0; return Math.floor(n); }
+  function pct(n,d){ return (!d||d<=0) ? 0 : (n/d)*100; }
+
+  function startEndForRange(range, refDateISO){
+    const ref = new Date(refDateISO+"T00:00:00");
+    const dayStart = new Date(ref);
+    const dayEnd = new Date(ref); dayEnd.setDate(dayEnd.getDate()+1);
+
+    if(range==="day") return [dayStart, dayEnd];
+    if(range==="week"){
+      const d=new Date(ref); const day=(d.getDay()+6)%7;
+      const start=new Date(d); start.setDate(d.getDate()-day);
+      const end=new Date(start); end.setDate(start.getDate()+7);
+      return [start,end];
+    }
+    if(range==="month"){
+      const start=new Date(ref.getFullYear(), ref.getMonth(), 1);
+      const end=new Date(ref.getFullYear(), ref.getMonth()+1, 1);
+      return [start,end];
+    }
+    if(range==="quarter"){
+      const q=Math.floor(ref.getMonth()/3);
+      const start=new Date(ref.getFullYear(), q*3, 1);
+      const end=new Date(ref.getFullYear(), q*3+3, 1);
+      return [start,end];
+    }
+    if(range==="year"){
+      const start=new Date(ref.getFullYear(), 0, 1);
+      const end=new Date(ref.getFullYear()+1, 0, 1);
+      return [start,end];
+    }
+    return [dayStart, dayEnd];
+  }
+
+  function inRange(dateISO, start, end){
+    const d=new Date(dateISO+"T00:00:00");
+    return d>=start && d<end;
+  }
+
+  function bucketKey(date, source, staff){ return `${date}__${source}__${staff}`; }
+  function getCounts(){ return load(COUNTS_KEY); }
+  function getLeads(){ return load(LEADS_KEY); }
+
+  function leadsByBucket(){
+    const leads = getLeads();
+    const map = {};
+    for(const l of leads){
+      map[l.bucketKey] = (map[l.bucketKey]||0) + 1;
+    }
+    return map;
+  }
+
+  function computeRemainingBuckets(){
+    const counts = getCounts();
+    const leadCount = leadsByBucket();
+    const buckets = [];
+    for(const c of counts){
+      const entered = leadCount[c.key] || 0;
+      const remaining = Math.max(0, c.details - entered);
+      if(c.details > 0){
+        buckets.push({ key:c.key, date:c.date, source:c.source, staff:c.staff, details:c.details, entered, remaining });
+      }
+    }
+    return buckets;
+  }
+
+  // Dashboard metrics from leads:
+  function leadIsAttended(l){ return l.apptStatus === "Attended"; }
+  function leadIsSale(l){ return l.sale === "Yes"; }
+
+  // ---------------- View switching ----------------
+  function setView(view){
+    const isDash = view==="dashboard";
+    const isCounts = view==="counts";
+    const isLeads = view==="leads";
+    $("viewDashboard").classList.toggle("hidden", !isDash);
+    $("viewCounts").classList.toggle("hidden", !isCounts);
+    $("viewLeads").classList.toggle("hidden", !isLeads);
+
+    $("tabDashboard").classList.toggle("active", isDash);
+    $("tabCounts").classList.toggle("active", isCounts);
+    $("tabLeads").classList.toggle("active", isLeads);
+
+    if(isDash) renderDashboard();
+    if(isCounts) renderCounts();
+    if(isLeads) renderLeads();
+  }
+
+  $("tabDashboard").addEventListener("click", ()=>setView("dashboard"));
+  $("tabCounts").addEventListener("click", ()=>setView("counts"));
+  $("tabLeads").addEventListener("click", ()=>setView("leads"));
+
+  $("goDash1").addEventListener("click", ()=>setView("dashboard"));
+  $("goDash2").addEventListener("click", ()=>setView("dashboard"));
+  $("goLeadsFromCounts").addEventListener("click", ()=>setView("leads"));
+  $("goCountsFromLeads").addEventListener("click", ()=>setView("counts"));
+
+  // ---------------- Dashboard (UPDATED: Attended + Sales) ----------------
+  function renderDashboard(){
+    const range = $("d_range").value;
+    const refDate = $("d_refDate").value || todayISO();
+    const [start,end] = startEndForRange(range, refDate);
+
+    // Counts are filtered by their date
+    const counts = getCounts().filter(c=>inRange(c.date, start, end));
+
+    // Leads are filtered by dateCaptured (same date as the counts bucket date) so it's synchronised to the same timeframe
+    const leads = getLeads().filter(l=>inRange(l.dateCaptured, start, end));
+
+    const totalNew = counts.reduce((s,r)=>s+r.newEnq,0);
+    const totalDetails = counts.reduce((s,r)=>s+r.details,0);
+    const totalBookedCounts = counts.reduce((s,r)=>s+r.booked,0);
+
+    const totalAttended = leads.filter(leadIsAttended).length;
+    const totalSales = leads.filter(leadIsSale).length;
+
+    $("kpiNew").textContent = totalNew;
+    $("kpiDetails").textContent = totalDetails;
+    $("kpiBookedCounts").textContent = totalBookedCounts;
+    $("kpiAttended").textContent = totalAttended;
+    $("kpiSales").textContent = totalSales;
+
+    $("kpiConv").textContent = `${pct(totalBookedCounts, totalNew).toFixed(1)}%`;
+
+    // Breakdown by Source
+    const bySource = {};
+    for(const c of counts){
+      bySource[c.source] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      bySource[c.source].new += c.newEnq;
+      bySource[c.source].details += c.details;
+      bySource[c.source].booked += c.booked;
+    }
+    for(const l of leads){
+      bySource[l.source] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      if(leadIsAttended(l)) bySource[l.source].attended += 1;
+      if(leadIsSale(l)) bySource[l.source].sales += 1;
+    }
+    const sBody = $("dashBySource");
+    sBody.innerHTML = "";
+    const sources = Object.keys(bySource).sort();
+    if(sources.length===0){
+      sBody.innerHTML = `<tr><td colspan="8" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
+    } else {
+      for(const s of sources){
+        const t = bySource[s];
+        sBody.innerHTML += `
+          <tr>
+            <td>${escapeHtml(s)}</td>
+            <td>${t.new}</td>
+            <td>${t.details}</td>
+            <td>${t.booked}</td>
+            <td>${t.attended}</td>
+            <td>${t.sales}</td>
+            <td>${pct(t.details, t.new).toFixed(1)}%</td>
+            <td>${pct(t.booked, t.new).toFixed(1)}%</td>
+          </tr>
+        `;
+      }
+    }
+
+    // Breakdown by Staff
+    const byStaff = {};
+    for(const c of counts){
+      byStaff[c.staff] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      byStaff[c.staff].new += c.newEnq;
+      byStaff[c.staff].details += c.details;
+      byStaff[c.staff].booked += c.booked;
+    }
+    for(const l of leads){
+      const staff = l.capturedBy || "—";
+      byStaff[staff] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      if(leadIsAttended(l)) byStaff[staff].attended += 1;
+      if(leadIsSale(l)) byStaff[staff].sales += 1;
+    }
+    const stBody = $("dashByStaff");
+    stBody.innerHTML = "";
+    const staffKeys = Object.keys(byStaff).sort();
+    if(staffKeys.length===0){
+      stBody.innerHTML = `<tr><td colspan="8" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
+    } else {
+      for(const s of staffKeys){
+        const t = byStaff[s];
+        stBody.innerHTML += `
+          <tr>
+            <td>${escapeHtml(s)}</td>
+            <td>${t.new}</td>
+            <td>${t.details}</td>
+            <td>${t.booked}</td>
+            <td>${t.attended}</td>
+            <td>${t.sales}</td>
+            <td>${pct(t.details, t.new).toFixed(1)}%</td>
+            <td>${pct(t.booked, t.new).toFixed(1)}%</td>
+          </tr>
+        `;
+      }
+    }
+  }
+
+  $("d_range").addEventListener("change", renderDashboard);
+  $("d_refDate").addEventListener("change", renderDashboard);
+
+  // ---------------- Tab 1: Counts (with edit) ----------------
+  function setCountsMode(mode){
+    const editing = mode==="edit";
+    $("countsModePill").textContent = editing ? "Mode: Edit" : "Mode: Add";
+    $("countsCancelBtn").classList.toggle("hidden", !editing);
+    $("countsSaveBtn").textContent = editing ? "Save Changes" : "Save Counts";
+  }
+  function resetCountsForm(){
+    $("c_editKey").value = "";
+    $("c_date").value = todayISO();
+    $("c_source").value = "";
+    $("c_staff").value = "";
+    $("c_new").value = 0;
+    $("c_details").value = 0;
+    $("c_booked").value = 0;
+    setCountsMode("add");
+  }
+  function openCountsEdit(row){
+    $("c_editKey").value = row.key;
+    $("c_date").value = row.date;
+    $("c_source").value = row.source;
+    $("c_staff").value = row.staff;
+    $("c_new").value = row.newEnq;
+    $("c_details").value = row.details;
+    $("c_booked").value = row.booked;
+    setCountsMode("edit");
+    document.getElementById("countsForm").scrollIntoView({behavior:"smooth", block:"start"});
+  }
+  $("countsCancelBtn").addEventListener("click", resetCountsForm);
+
+  function refreshBucketDropdown(preselectKey=null){
+    const sel = $("l_bucket");
+    if(!sel) return;
+
+    const bucketsAll = computeRemainingBuckets();
+    const remaining = bucketsAll.filter(b=>b.remaining>0);
+
+    const editingId = $("l_editId")?.value?.trim();
+    const editingLead = editingId ? getLeads().find(l=>l.id===editingId) : null;
+    const mustIncludeKey = editingLead?.bucketKey || null;
+
+    const options = [...remaining];
+    if(mustIncludeKey && !options.some(b=>b.key===mustIncludeKey)){
+      const found = bucketsAll.find(b=>b.key===mustIncludeKey);
+      if(found) options.push(found);
+    }
+
+    sel.innerHTML = "";
+    if(options.length===0){
+      sel.innerHTML = `<option value="">No available buckets (increase Details in Tab 1)</option>`;
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+
+    options.sort((a,b)=> (a.date<b.date ? 1 : (a.date>b.date ? -1 : a.source.localeCompare(b.source))));
+    for(const b of options){
+      const label = `${b.date} • ${b.source} • ${b.staff}  (remaining: ${b.remaining})`;
+      const opt = document.createElement("option");
+      opt.value = b.key;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+    if(preselectKey && [...sel.options].some(o=>o.value===preselectKey)) sel.value = preselectKey;
+  }
+
+  function renderCounts(){
+    const q = ($("c_search").value||"").toLowerCase().trim();
+    const counts = getCounts();
+    const tbody = $("countsTbody");
+    tbody.innerHTML = "";
+    const leadCount = leadsByBucket();
+
+    const filtered = counts
+      .filter(c=>{
+        if(!q) return true;
+        return (c.date||"").includes(q) ||
+               (c.source||"").toLowerCase().includes(q) ||
+               (c.staff||"").toLowerCase().includes(q);
+      })
+      .sort((a,b)=> (a.date<b.date ? 1 : -1));
+
+    if(filtered.length===0){
+      tbody.innerHTML = `<tr><td colspan="9" class="muted" style="padding:14px 8px;">No rows yet.</td></tr>`;
+      refreshBucketDropdown();
+      return;
+    }
+
+    for(const c of filtered){
+      const entered = leadCount[c.key] || 0;
+      const remaining = Math.max(0, c.details - entered);
+
+      tbody.innerHTML += `
+        <tr>
+          <td>${c.date}</td>
+          <td>${escapeHtml(c.source)}</td>
+          <td>${escapeHtml(c.staff)}</td>
+          <td>${c.newEnq}</td>
+          <td>${c.details}</td>
+          <td>${c.booked}</td>
+          <td>${entered}</td>
+          <td>${remaining}</td>
+          <td class="right" style="white-space:nowrap; display:flex; gap:8px; justify-content:flex-end;">
+            <button type="button" class="c_edit mini" data-key="${escapeHtml(c.key)}">Edit</button>
+            <button type="button" class="c_del mini danger" data-key="${escapeHtml(c.key)}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    tbody.querySelectorAll(".c_edit").forEach(btn=>{
+      btn.onclick=()=>{
+        const key = btn.getAttribute("data-key");
+        const row = getCounts().find(c=>c.key===key);
+        if(row) openCountsEdit(row);
+      };
+    });
+
+    tbody.querySelectorAll(".c_del").forEach(btn=>{
+      btn.onclick=()=>{
+        const key = btn.getAttribute("data-key");
+        const next = getCounts().filter(c=>c.key!==key);
+        save(COUNTS_KEY, next);
+        if($("c_editKey").value === key) resetCountsForm();
+        renderCounts();
+        renderLeads();
+        renderDashboard();
+      };
+    });
+
+    refreshBucketDropdown();
+  }
+
+  $("countsForm").addEventListener("submit",(e)=>{
+    e.preventDefault();
+    const date = $("c_date").value;
+    const source = $("c_source").value;
+    const staff = $("c_staff").value.trim();
+
+    const newEnq = clampInt($("c_new").value);
+    const details = clampInt($("c_details").value);
+    const booked = clampInt($("c_booked").value);
+
+    if(details > newEnq) return alert("Details provided cannot be higher than New enquiries.");
+    if(booked > details) return alert("Appointments booked cannot be higher than Details provided.");
+
+    const existingEditKey = $("c_editKey").value.trim();
+    const newKey = bucketKey(date, source, staff);
+    const rows = getCounts();
+
+    if(existingEditKey && existingEditKey !== newKey){
+      if(rows.some(r=>r.key===newKey)){
+        return alert("A counts row already exists for that Date + Source + Staff. Choose a different combination.");
+      }
+      const idx = rows.findIndex(r=>r.key===existingEditKey);
+      if(idx !== -1){
+        rows[idx] = { key:newKey, date, source, staff, newEnq, details, booked };
+
+        // migrate linked leads to new bucket key
+        const leads = getLeads();
+        const updatedLeads = leads.map(l => (l.bucketKey === existingEditKey) ? ({
+          ...l,
+          bucketKey: newKey,
+          dateCaptured: date,
+          source: source,
+          capturedBy: staff
+        }) : l);
+        save(LEADS_KEY, updatedLeads);
+      }
+      save(COUNTS_KEY, rows);
+      resetCountsForm();
+      renderCounts(); renderLeads(); renderDashboard();
+      return;
+    }
+
+    const key = newKey;
+    const idx = rows.findIndex(r=>r.key===key);
+    const row = { key, date, source, staff, newEnq, details, booked };
+    if(idx === -1) rows.push(row); else rows[idx] = row;
+
+    save(COUNTS_KEY, rows);
+    resetCountsForm();
+    renderCounts(); renderLeads(); renderDashboard();
+  });
+
+  $("c_search").addEventListener("input", renderCounts);
+
+  $("seedCounts").addEventListener("click", ()=>{
+    const rows = getCounts();
+    const t = todayISO();
+    const k1 = bucketKey(t,"Instagram","Sam");
+    const k2 = bucketKey(t,"TikTok","Amina");
+    const k3 = bucketKey(t,"Google Ads","Sam");
+    if(!rows.some(r=>r.key===k1)) rows.push({ key:k1, date:t, source:"Instagram", staff:"Sam", newEnq:20, details:8, booked:3 });
+    if(!rows.some(r=>r.key===k2)) rows.push({ key:k2, date:t, source:"TikTok", staff:"Amina", newEnq:15, details:6, booked:2 });
+    if(!rows.some(r=>r.key===k3)) rows.push({ key:k3, date:t, source:"Google Ads", staff:"Sam", newEnq:10, details:5, booked:2 });
+    save(COUNTS_KEY, rows);
+    renderCounts(); renderDashboard();
+  });
+
+  // ---------------- Tab 2: Leads (with edit) ----------------
+  function setLeadMode(mode){
+    const editing = mode==="edit";
+    $("leadModePill").textContent = editing ? "Mode: Edit" : "Mode: Add";
+    $("leadCancelBtn").classList.toggle("hidden", !editing);
+    $("leadSaveBtn").textContent = editing ? "Save Changes" : "Save Lead";
+  }
+  function resetLeadForm(){
+    $("l_editId").value = "";
+    $("l_name").value = "";
+    $("l_phone").value = "";
+    $("l_apptDate").value = "";
+    $("l_apptTime").value = "";
+    $("l_apptStatus").value = "";
+    $("l_servedBy").value = "";
+    $("l_sale").value = "";
+    setLeadMode("add");
+    refreshBucketDropdown();
+  }
+  $("leadCancelBtn").addEventListener("click", resetLeadForm);
+
+  function openLeadEdit(lead){
+    $("l_editId").value = lead.id;
+    refreshBucketDropdown(lead.bucketKey);
+    $("l_bucket").value = lead.bucketKey;
+    $("l_name").value = lead.name || "";
+    $("l_phone").value = lead.phone || "";
+    $("l_apptDate").value = lead.apptDate || "";
+    $("l_apptTime").value = lead.apptTime || "";
+    $("l_apptStatus").value = lead.apptStatus || "";
+    $("l_servedBy").value = lead.servedBy || "";
+    $("l_sale").value = lead.sale || "";
+    setLeadMode("edit");
+    document.getElementById("leadForm").scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  function renderRemainingTable(){
+    const buckets = computeRemainingBuckets().filter(b=>b.details>0);
+    const tbody = $("remainingTbody");
+    tbody.innerHTML = "";
+
+    if(buckets.length===0){
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:14px 8px;">No buckets yet. Add counts in Tab 1.</td></tr>`;
+      return;
+    }
+
+    buckets.sort((a,b)=> (b.remaining-a.remaining) || (b.date.localeCompare(a.date)));
+    for(const b of buckets){
+      const btn = (b.remaining>0)
+        ? `<button type="button" class="addLead mini" data-key="${escapeHtml(b.key)}">Add Lead</button>`
+        : `<span class="pill">Complete</span>`;
+      tbody.innerHTML += `
+        <tr>
+          <td>${b.date}</td>
+          <td>${escapeHtml(b.source)}</td>
+          <td>${escapeHtml(b.staff)}</td>
+          <td>${b.remaining} / ${b.details}</td>
+          <td class="right">${btn}</td>
+        </tr>
+      `;
+    }
+
+    tbody.querySelectorAll(".addLead").forEach(btn=>{
+      btn.onclick=()=>{
+        const key = btn.getAttribute("data-key");
+        resetLeadForm();
+        refreshBucketDropdown(key);
+        document.getElementById("leadForm").scrollIntoView({behavior:"smooth", block:"start"});
+      };
+    });
+  }
+
+  function renderLeads(){
+    refreshBucketDropdown();
+    renderRemainingTable();
+
+    const q = ($("l_search").value||"").toLowerCase().trim();
+    const leads = getLeads()
+      .filter(l=>{
+        if(!q) return true;
+        return (l.name||"").toLowerCase().includes(q) ||
+               (l.phone||"").toLowerCase().includes(q) ||
+               (l.source||"").toLowerCase().includes(q) ||
+               (l.capturedBy||"").toLowerCase().includes(q);
+      })
+      .sort((a,b)=> (a.createdAt < b.createdAt ? 1 : -1));
+
+    const tbody = $("leadsTbody");
+    tbody.innerHTML = "";
+
+    if(leads.length===0){
+      tbody.innerHTML = `<tr><td colspan="9" class="muted" style="padding:14px 8px;">No leads entered yet.</td></tr>`;
+      return;
+    }
+
+    for(const l of leads){
+      const appt = (l.apptDate ? l.apptDate : "") + (l.apptTime ? ` ${l.apptTime}` : "");
+      tbody.innerHTML += `
+        <tr>
+          <td>${l.dateCaptured}</td>
+          <td>${escapeHtml(l.source)}</td>
+          <td>${escapeHtml(l.capturedBy)}</td>
+          <td>${escapeHtml(l.name)}</td>
+          <td>${escapeHtml(l.phone)}</td>
+          <td>${escapeHtml(appt.trim() || "—")}</td>
+          <td><span class="pill ${l.apptStatus ? "warn" : ""}">${escapeHtml(l.apptStatus || "—")}</span></td>
+          <td><span class="pill ${l.sale==="Yes" ? "ok" : (l.sale==="No" ? "danger" : "")}">${escapeHtml(l.sale || "—")}</span></td>
+          <td class="right" style="white-space:nowrap; display:flex; gap:8px; justify-content:flex-end;">
+            <button type="button" class="l_edit mini" data-id="${escapeHtml(l.id)}">Edit</button>
+            <button type="button" class="l_del mini danger" data-id="${escapeHtml(l.id)}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    tbody.querySelectorAll(".l_edit").forEach(btn=>{
+      btn.onclick=()=>{
+        const id = btn.getAttribute("data-id");
+        const lead = getLeads().find(l=>l.id===id);
+        if(lead) openLeadEdit(lead);
+      };
+    });
+
+    tbody.querySelectorAll(".l_del").forEach(btn=>{
+      btn.onclick=()=>{
+        const id = btn.getAttribute("data-id");
+        save(LEADS_KEY, getLeads().filter(l=>l.id!==id));
+        if($("l_editId").value === id) resetLeadForm();
+        renderLeads(); renderCounts(); renderDashboard();
+      };
+    });
+  }
+
+  $("leadForm").addEventListener("submit",(e)=>{
+    e.preventDefault();
+    const leads = getLeads();
+    const editingId = $("l_editId").value.trim();
+    const isEdit = !!editingId;
+
+    const chosenBucketKey = $("l_bucket").value;
+    if(!chosenBucketKey) return alert("No available bucket. Increase Details Provided in Tab 1 first.");
+
+    const countsRow = getCounts().find(c=>c.key===chosenBucketKey);
+    if(!countsRow) return alert("Bucket not found in counts (Tab 1).");
+
+    const buckets = computeRemainingBuckets();
+    const bucket = buckets.find(b=>b.key===chosenBucketKey);
+
+    if(!isEdit){
+      if(!bucket || bucket.remaining<=0){
+        return alert("This bucket has no remaining leads to enter. Increase Details Provided in Tab 1 if needed.");
+      }
+    } else {
+      const current = leads.find(l=>l.id===editingId);
+      if(!current) return alert("Lead not found.");
+      const changedBucket = current.bucketKey !== chosenBucketKey;
+      if(changedBucket){
+        if(!bucket || bucket.remaining<=0){
+          return alert("The new bucket has no remaining capacity. Choose another bucket or increase Details in Tab 1.");
+        }
+      }
+    }
+
+    const name = $("l_name").value.trim();
+    const phone = $("l_phone").value.trim();
+    const apptDate = $("l_apptDate").value;
+    const apptTime = $("l_apptTime").value;
+    let apptStatus = $("l_apptStatus").value;
+    if((apptDate || apptTime) && !apptStatus) apptStatus = "Scheduled";
+    const servedBy = $("l_servedBy").value.trim();
+    const sale = $("l_sale").value;
+
+    if(!isEdit){
+      leads.push({
+        id: makeId(),
+        createdAt: Date.now(),
+        bucketKey: chosenBucketKey,
+        dateCaptured: countsRow.date,
+        source: countsRow.source,
+        capturedBy: countsRow.staff,
+        name, phone,
+        apptDate, apptTime, apptStatus,
+        servedBy, sale
+      });
+      save(LEADS_KEY, leads);
+      resetLeadForm();
+    } else {
+      const idx = leads.findIndex(l=>l.id===editingId);
+      const prev = leads[idx];
+      leads[idx] = {
+        ...prev,
+        bucketKey: chosenBucketKey,
+        dateCaptured: countsRow.date,
+        source: countsRow.source,
+        capturedBy: countsRow.staff,
+        name, phone,
+        apptDate, apptTime, apptStatus,
+        servedBy, sale
+      };
+      save(LEADS_KEY, leads);
+      resetLeadForm();
+    }
+
+    renderLeads(); renderCounts(); renderDashboard();
+  });
+
+  $("l_search").addEventListener("input", renderLeads);
+
+  $("seedLeads").addEventListener("click", ()=>{
+    const buckets = computeRemainingBuckets().filter(b=>b.remaining>0);
+    if(buckets.length===0) return alert("No remaining buckets. Increase Details Provided in Tab 1 first.");
+    const b = buckets[0];
+    const countsRow = getCounts().find(c=>c.key===b.key);
+
+    const leads = getLeads();
+    leads.push({
+      id: makeId(),
+      createdAt: Date.now(),
+      bucketKey: b.key,
+      dateCaptured: countsRow.date,
+      source: countsRow.source,
+      capturedBy: countsRow.staff,
+      name: "Sample Lead",
+      phone: "07xxxxxxx",
+      apptDate: "",
+      apptTime: "",
+      apptStatus: "Attended",
+      servedBy: countsRow.staff,
+      sale: "Yes"
+    });
+    save(LEADS_KEY, leads);
+    renderLeads(); renderCounts(); renderDashboard();
+  });
+
+  // ---------------- Clear All ----------------
+  $("resetAll").addEventListener("click", ()=>{
+    if(!confirm("Clear ALL counts + leads from this browser?")) return;
+    localStorage.removeItem(COUNTS_KEY);
+    localStorage.removeItem(LEADS_KEY);
+    resetCountsForm();
+    resetLeadForm();
+    renderDashboard();
+    renderCounts();
+    renderLeads();
+  });
+
+  // ---------------- Init ----------------
+  $("d_refDate").value = todayISO();
+  $("c_date").value = todayISO();
+  resetCountsForm();
+  resetLeadForm();
+  setView("dashboard");
+</script>
+</body>
+</html>
