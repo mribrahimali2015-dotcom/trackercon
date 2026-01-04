@@ -45,6 +45,15 @@
     .kpi .lbl{ font-size:12px; color:var(--muted); margin-top:4px; }
 
     .badge{ display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; background:var(--soft); color:var(--muted); }
+  
+    /* Staff panel */
+    .panelBackdrop{ position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:40; }
+    .panel{ position:fixed; top:18px; right:18px; width:min(420px, calc(100vw - 36px)); max-height:calc(100vh - 36px);
+            overflow:auto; z-index:50; }
+    .staffList{ list-style:none; padding:0; margin:10px 0 0; }
+    .staffList li{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+    .staffList button{ padding:6px 10px; }
+
   </style>
 </head>
 
@@ -59,8 +68,37 @@
     <button class="tab active" id="tabDashboard" type="button">Dashboard</button>
     <button class="tab" id="tabCounts" type="button">Tab 1: Counts</button>
     <button class="tab" id="tabLeads" type="button">Tab 2: Leads</button>
+    <button class="tab" id="tabStaff" type="button" aria-label="Manage staff">Staff</button>
   </div>
 </header>
+
+
+<!-- ===================== STAFF PANEL ===================== -->
+<div id="staffBackdrop" class="panelBackdrop hidden" aria-hidden="true"></div>
+<section id="staffPanel" class="card panel hidden" role="dialog" aria-modal="true" aria-label="Staff manager">
+  <div class="topline">
+    <div>
+      <h2 style="margin:0;font-size:16px;">Staff Manager</h2>
+      <p class="muted small" style="margin:6px 0 0;">Add staff once, then choose names from dropdowns to avoid spelling mistakes.</p>
+    </div>
+    <button type="button" id="closeStaff" class="mini">Close</button>
+  </div>
+
+  <hr class="divider" />
+
+  <label>Add staff name</label>
+  <div class="inline" style="align-items:stretch;">
+    <input id="staffNew" type="text" placeholder="e.g., Sam" />
+    <button type="button" id="staffAddBtn">Add</button>
+  </div>
+  <p class="muted small" style="margin:10px 0 0;">Tip: Names are case-insensitive (so “sam” and “Sam” count as the same person).</p>
+
+  <hr class="divider" />
+
+  <h3 style="margin:0;font-size:14px;">Current staff</h3>
+  <ul id="staffList" class="staffList"></ul>
+</section>
+
 
 <main>
 
@@ -185,7 +223,9 @@
           </select>
 
           <label>Staff (who handled the enquiries)</label>
-          <input id="c_staff" type="text" placeholder="e.g., Sam" required />
+          <select id="c_staff" required>
+            <option value="">Select…</option>
+          </select>
 
           <label>New enquiries (count)</label>
           <input id="c_new" type="number" min="0" step="1" value="0" required />
@@ -283,7 +323,9 @@
           <input id="l_bookedBy" type="text" placeholder="e.g., Jordan" />
 
           <label>Served by (who ran the appointment / closed the sale)</label>
-          <input id="l_servedBy" type="text" placeholder="e.g., Amina" />
+          <select id="l_servedBy">
+            <option value="">—</option>
+          </select>
 
           <label>Sale outcome</label>
           <select id="l_sale">
@@ -372,6 +414,7 @@
 <script>
   const COUNTS_KEY = "suit_counts_v7";
   const LEADS_KEY  = "suit_leads_v7";
+  const STAFF_KEY  = "suit_staff_v1";
   const $ = (id) => document.getElementById(id);
 
   function todayISO(){
@@ -476,6 +519,105 @@
   }
 
   function normStaff(s){ return String(s||"").trim().toLowerCase(); }
+function canonicalName(s){ return String(s||"").trim().replace(/\s+/g," "); }
+
+function getStaffList(){
+  try{ return JSON.parse(localStorage.getItem(STAFF_KEY)||"[]"); }catch{ return []; }
+}
+function setStaffList(list){
+  const cleaned = Array.from(new Set((list||[]).map(canonicalName).filter(Boolean)))
+    .sort((a,b)=>a.localeCompare(b));
+  localStorage.setItem(STAFF_KEY, JSON.stringify(cleaned));
+  return cleaned;
+}
+
+function syncStaffFromData(){
+  const set = new Map(); // key->display
+  for(const s of getStaffList()) set.set(normStaff(s), canonicalName(s));
+
+  for(const c of getCounts()){
+    if(c?.staff) set.set(normStaff(c.staff), canonicalName(c.staff));
+  }
+  for(const l of getLeads()){
+    if(l?.capturedBy) set.set(normStaff(l.capturedBy), canonicalName(l.capturedBy));
+    if(l?.servedBy) set.set(normStaff(l.servedBy), canonicalName(l.servedBy));
+    if(l?.bookedBy) set.set(normStaff(l.bookedBy), canonicalName(l.bookedBy));
+  }
+  return setStaffList(Array.from(set.values()));
+}
+
+function renderStaffSelectOptions(){
+  const staff = syncStaffFromData();
+
+  // Counts staff (required)
+  const cSel = $("c_staff");
+  if(cSel){
+    const prev = cSel.value;
+    cSel.innerHTML = `<option value="">Select…</option>` + staff.map(s=>`<option>${escapeHtml(s)}</option>`).join("");
+    if(prev && staff.includes(prev)) cSel.value = prev;
+  }
+
+  // Lead Served by (optional)
+  const servedSel = $("l_servedBy");
+  if(servedSel){
+    const prev = servedSel.value;
+    servedSel.innerHTML = `<option value="">—</option>` + staff.map(s=>`<option>${escapeHtml(s)}</option>`).join("");
+    if(prev && staff.includes(prev)) servedSel.value = prev;
+  }
+
+  // Lead Booked by (optional, but paired with booked date)
+  const bookedSel = $("l_bookedBy");
+  if(bookedSel){
+    const prev = bookedSel.value;
+    bookedSel.innerHTML = `<option value="">—</option>` + staff.map(s=>`<option>${escapeHtml(s)}</option>`).join("");
+    if(prev && staff.includes(prev)) bookedSel.value = prev;
+  }
+
+  // Staff filter
+  const staffSelect = $("l_staffFilter");
+  if(staffSelect){
+    const prev = staffSelect.value;
+    staffSelect.innerHTML = `<option value="">All staff</option>` + staff.map(s=>`<option>${escapeHtml(s)}</option>`).join("");
+    if(prev && staff.includes(prev)) staffSelect.value = prev;
+  }
+
+  renderStaffPanel();
+  return staff;
+}
+
+function renderStaffPanel(){
+  const ul = $("staffList");
+  if(!ul) return;
+  const staff = getStaffList();
+  if(staff.length===0){
+    ul.innerHTML = `<li><span class="muted">No staff added yet.</span></li>`;
+    return;
+  }
+  ul.innerHTML = staff.map(s=>`
+    <li>
+      <span>${escapeHtml(s)}</span>
+      <button type="button" class="staffDel mini danger" data-name="${escapeHtml(s)}">Remove</button>
+    </li>
+  `).join("");
+
+  ul.querySelectorAll(".staffDel").forEach(btn=>{
+    btn.onclick = ()=>{
+      const name = btn.getAttribute("data-name") || "";
+      const key = normStaff(name);
+      const remaining = getStaffList().filter(x=>normStaff(x)!==key);
+      setStaffList(remaining);
+      renderStaffSelectOptions();
+      renderDashboard(); renderCounts(); renderLeads();
+    };
+  });
+}
+
+function openStaffPanel(open){
+  $("staffPanel").classList.toggle("hidden", !open);
+  $("staffBackdrop").classList.toggle("hidden", !open);
+  $("staffBackdrop").setAttribute("aria-hidden", open ? "false" : "true");
+  if(open){ renderStaffPanel(); $("staffNew")?.focus(); }
+}
 
   function staffMatches(l, staffFilter){
     if(!staffFilter) return true;
@@ -514,6 +656,29 @@
   $("tabDashboard").addEventListener("click", ()=>setView("dashboard"));
   $("tabCounts").addEventListener("click", ()=>setView("counts"));
   $("tabLeads").addEventListener("click", ()=>setView("leads"));
+
+// Staff panel
+$("tabStaff").addEventListener("click", ()=>openStaffPanel(true));
+$("closeStaff").addEventListener("click", ()=>openStaffPanel(false));
+$("staffBackdrop").addEventListener("click", ()=>openStaffPanel(false));
+$("staffAddBtn").addEventListener("click", ()=>{
+  const name = canonicalName($("staffNew").value);
+  if(!name) return;
+  const existing = getStaffList();
+  const key = normStaff(name);
+  if(existing.some(x=>normStaff(x)===key)){
+    $("staffNew").value = "";
+    return alert("That staff name already exists.");
+  }
+  setStaffList([...existing, name]);
+  $("staffNew").value = "";
+  renderStaffSelectOptions();
+});
+
+$("staffNew").addEventListener("keydown", (e)=>{
+  if(e.key==="Enter"){ e.preventDefault(); $("staffAddBtn").click(); }
+  if(e.key==="Escape"){ openStaffPanel(false); }
+});
   $("goDash1").addEventListener("click", ()=>setView("dashboard"));
   $("goDash2").addEventListener("click", ()=>setView("dashboard"));
   $("goLeadsFromCounts").addEventListener("click", ()=>setView("leads"));
@@ -739,6 +904,7 @@
   }
 
   function renderCounts(){
+    renderStaffSelectOptions();
     const q = ($("c_search").value||"").toLowerCase().trim();
     const counts = getCounts();
     const tbody = $("countsTbody");
@@ -869,11 +1035,24 @@
     $("l_saleRef").value = "";
     setLeadMode("add");
     refreshBucketDropdown();
+    renderStaffSelectOptions();
     updateSaleRefUI();
   }
 
   $("leadCancelBtn").addEventListener("click", resetLeadForm);
   $("l_sale").addEventListener("change", updateSaleRefUI);
+
+
+// Auto-fill booked fields when choosing a bucket (for new leads)
+$("l_bucket").addEventListener("change", ()=>{
+  const editingId = $("l_editId").value.trim();
+  if(editingId) return; // don't overwrite on edit
+  const key = $("l_bucket").value;
+  const row = getCounts().find(c=>c.key===key);
+  if(!row) return;
+  if(!$("l_bookedDate").value) $("l_bookedDate").value = row.date;
+  if(!$("l_bookedBy").value) $("l_bookedBy").value = row.staff;
+});
 
   function openLeadEdit(lead){
     $("l_editId").value = lead.id;
@@ -922,7 +1101,7 @@
       leadRefInput.style.opacity = all ? "0.55" : "1";
       if(all && leadRangePill) leadRangePill.textContent = "All time";
     }
-    const staffList = getStaffOptionsFromLeads(allLeads);
+    const staffList = renderStaffSelectOptions();
 
     const staffSelect = $("l_staffFilter");
     if(staffSelect){
@@ -1148,13 +1327,18 @@
 
     // Booking attribution (Option A)
     let bookedDate = $("l_bookedDate").value;
-    let bookedBy = $("l_bookedBy").value.trim();
+    let bookedBy = $("l_bookedBy").value;
+
+    // Booked fields must be paired
+    if((bookedDate && !bookedBy) || (!bookedDate && bookedBy)){
+      return alert("If you set Booked date, please also choose Booked by (and vice versa).");
+    }
     // If any appointment info is present, assume it was booked today unless specified
     if((apptDate || apptTime || apptStatus) && !bookedDate) bookedDate = todayISO();
     // If it's booked but no booker entered, default to capturedBy for convenience
     if(bookedDate && !bookedBy) bookedBy = (countsRow.staff || "").trim();
 
-    const servedBy = $("l_servedBy").value.trim();
+    const servedBy = $("l_servedBy").value;
     const sale = $("l_sale").value;
     const saleRef = $("l_saleRef").value.trim();
 
@@ -1221,6 +1405,9 @@
     renderDashboard(); renderCounts(); renderLeads();
   });
 
+  // ---------------- Global keys ----------------
+  document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") openStaffPanel(false); });
+
   // ---------------- Init ----------------
   $("d_refDate").value = todayISO();
   $("c_date").value = todayISO();
@@ -1228,6 +1415,7 @@
   $("d_attrib").value = "served";
   resetCountsForm();
   resetLeadForm();
+  renderStaffSelectOptions();
   updateSaleRefUI();
   setView("dashboard");
 </script>
