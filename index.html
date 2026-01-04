@@ -119,7 +119,7 @@
       <table>
         <thead>
           <tr>
-            <th>Source</th><th>New</th><th>Details</th><th>Booked</th><th>Attended</th><th>Sales</th>
+            <th>Source</th><th>New</th><th>Details</th><th>Booked</th><th>Attended</th><th>No-show</th><th>Cancelled</th><th>Rescheduled</th><th>Sales</th>
             <th>Details→Booked%</th><th>Attended→Sales%</th>
           </tr>
         </thead>
@@ -135,7 +135,7 @@
       <table>
         <thead>
           <tr>
-            <th>Staff</th><th>New</th><th>Details</th><th>Booked</th><th>Attended</th><th>Sales</th>
+            <th>Staff</th><th>New</th><th>Details</th><th>Booked</th><th>Attended</th><th>No-show</th><th>Cancelled</th><th>Rescheduled</th><th>Sales</th>
             <th>Details→Booked%</th><th>Attended→Sales%</th>
           </tr>
         </thead>
@@ -298,14 +298,59 @@
       </section>
 
       <section class="card">
-        <h2 style="margin:0;font-size:16px;">Lead List</h2>
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">Today's Appointments</h2>
+            <p class="muted small" style="margin:6px 0 0;">Sorted by appointment time. Use the Status dropdown to update quickly.</p>
+          </div>
+          <div class="inline">
+            <select id="l_staffFilter" aria-label="Staff filter" style="max-width:220px;">
+              <option value="">All staff</option>
+            </select>
+            <button type="button" id="refreshToday" class="mini">Refresh</button>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Name</th><th>Phone</th><th>Source</th>
+              <th>Captured</th><th>Served</th><th>Status</th>
+              <th>Sale</th><th>Ref</th><th class="right"></th>
+            </tr>
+          </thead>
+          <tbody id="todayTbody"></tbody>
+        </table>
+
+        <hr class="divider" />
+
+        <div class="topline">
+          <div>
+            <h2 style="margin:0;font-size:16px;">All Leads</h2>
+            <p class="muted small" style="margin:6px 0 0;">Filter by captured date timeframe (like the Dashboard). Ordered chronologically (Appt date/time).</p>
+          </div>
+          <div class="inline">
+            <select id="l_range" aria-label="Lead timeframe" style="max-width:170px;">
+              <option value="day">Daily</option>
+              <option value="week">Weekly</option>
+              <option value="month" selected>Monthly</option>
+              <option value="quarter">Quarterly</option>
+              <option value="year">Yearly</option>
+              <option value="all">All time</option>
+            </select>
+            <input id="l_refDate" type="date" aria-label="Lead reference date" style="max-width:170px;" />
+            <span class="pill" id="l_rangePill">Monthly</span>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
               <th>Date</th><th>Source</th><th>Captured By</th>
               <th>Name</th><th>Phone</th>
               <th>Appt</th><th>Status</th>
-              <th>Ref</th><th>Sale</th>
+              <th>Served</th>
+              <th>Sale</th><th>Ref</th>
               <th class="right"></th>
             </tr>
           </thead>
@@ -393,7 +438,34 @@
 
   // Lead status helpers
   function leadIsAttended(l){ return l.apptStatus === "Attended"; }
+  function leadIsNoShow(l){ return l.apptStatus === "No-show"; }
+  function leadIsCancelled(l){ return l.apptStatus === "Cancelled"; }
+  function leadIsRescheduled(l){ return l.apptStatus === "Rescheduled"; }
   function leadIsSale(l){ return l.sale === "Yes" && isValidSaleRef(l.saleRef); }
+
+  function leadApptTs(l){
+    const d = (l.apptDate && String(l.apptDate).trim()) ? l.apptDate : (l.dateCaptured || "");
+    if(!d) return Number.MAX_SAFE_INTEGER;
+    const t = (l.apptTime && /^\d{2}:\d{2}$/.test(l.apptTime)) ? l.apptTime : "23:59";
+    return new Date(`${d}T${t}:00`).getTime();
+  }
+
+  function normStaff(s){ return String(s||"").trim().toLowerCase(); }
+
+  function staffMatches(l, staffFilter){
+    if(!staffFilter) return true;
+    const f = normStaff(staffFilter);
+    return normStaff(l.capturedBy) === f || normStaff(l.servedBy) === f;
+  }
+
+  function getStaffOptionsFromLeads(leads){
+    const set = new Set();
+    for(const l of leads){
+      if(l.capturedBy && l.capturedBy.trim()) set.add(l.capturedBy.trim());
+      if(l.servedBy && l.servedBy.trim()) set.add(l.servedBy.trim());
+    }
+    return Array.from(set).sort((a,b)=>a.localeCompare(b));
+  }
 
   // ---------------- View switching ----------------
   function setView(view){
@@ -458,14 +530,17 @@
     // By Source
     const bySource = {};
     for(const c of counts){
-      bySource[c.source] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      bySource[c.source] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       bySource[c.source].new += c.newEnq;
       bySource[c.source].details += c.details;
       bySource[c.source].booked += c.booked;
     }
     for(const l of leads){
-      bySource[l.source] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      bySource[l.source] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       if(leadIsAttended(l)) bySource[l.source].attended += 1;
+      if(leadIsNoShow(l)) bySource[l.source].noShow += 1;
+      if(leadIsCancelled(l)) bySource[l.source].cancelled += 1;
+      if(leadIsRescheduled(l)) bySource[l.source].rescheduled += 1;
       if(leadIsSale(l)) bySource[l.source].sales += 1;
     }
 
@@ -473,7 +548,7 @@
     sBody.innerHTML = "";
     const sources = Object.keys(bySource).sort();
     if(sources.length===0){
-      sBody.innerHTML = `<tr><td colspan="8" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
+      sBody.innerHTML = `<tr><td colspan="11" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
     } else {
       for(const s of sources){
         const t = bySource[s];
@@ -484,6 +559,9 @@
             <td>${t.details}</td>
             <td>${t.booked}</td>
             <td>${t.attended}</td>
+            <td>${t.noShow}</td>
+            <td>${t.cancelled}</td>
+            <td>${t.rescheduled}</td>
             <td>${t.sales}</td>
             <td>${pct(t.booked, t.details).toFixed(1)}%</td>
             <td>${pct(t.sales, t.attended).toFixed(1)}%</td>
@@ -496,7 +574,7 @@
     const byStaff = {};
     // Tab 1 staff credit for New/Details/Booked
     for(const c of counts){
-      byStaff[c.staff] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      byStaff[c.staff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       byStaff[c.staff].new += c.newEnq;
       byStaff[c.staff].details += c.details;
       byStaff[c.staff].booked += c.booked;
@@ -504,8 +582,11 @@
     // Attended/Sales credit via attribution dropdown
     for(const l of leads){
       const staff = staffForLead_AttendedSales(l);
-      byStaff[staff] ??= { new:0, details:0, booked:0, attended:0, sales:0 };
+      byStaff[staff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       if(leadIsAttended(l)) byStaff[staff].attended += 1;
+      if(leadIsNoShow(l)) byStaff[staff].noShow += 1;
+      if(leadIsCancelled(l)) byStaff[staff].cancelled += 1;
+      if(leadIsRescheduled(l)) byStaff[staff].rescheduled += 1;
       if(leadIsSale(l)) byStaff[staff].sales += 1;
     }
 
@@ -513,7 +594,7 @@
     stBody.innerHTML = "";
     const staffKeys = Object.keys(byStaff).sort();
     if(staffKeys.length===0){
-      stBody.innerHTML = `<tr><td colspan="8" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
+      stBody.innerHTML = `<tr><td colspan="11" class="muted" style="padding:14px 8px;">No data in this timeframe.</td></tr>`;
     } else {
       for(const s of staffKeys){
         const t = byStaff[s];
@@ -524,6 +605,9 @@
             <td>${t.details}</td>
             <td>${t.booked}</td>
             <td>${t.attended}</td>
+            <td>${t.noShow}</td>
+            <td>${t.cancelled}</td>
+            <td>${t.rescheduled}</td>
             <td>${t.sales}</td>
             <td>${pct(t.booked, t.details).toFixed(1)}%</td>
             <td>${pct(t.sales, t.attended).toFixed(1)}%</td>
@@ -767,10 +851,136 @@
     updateSaleRefUI();
   }
 
+  
   function renderLeads(){
     refreshBucketDropdown();
+
+    const allLeads = getLeads();
+
+    // Lead timeframe (filters by captured date, like the Dashboard)
+    const leadRangeSel = $("l_range");
+    const leadRefInput = $("l_refDate");
+    const leadRangePill = $("l_rangePill");
+    const leadRange = leadRangeSel ? leadRangeSel.value : "month";
+    const leadRefDate = (leadRefInput && leadRefInput.value) ? leadRefInput.value : todayISO();
+
+    let leadStart=null, leadEnd=null;
+    if(leadRange !== "all"){
+      [leadStart, leadEnd] = startEndForRange(leadRange, leadRefDate);
+    }
+
+    if(leadRangePill && leadRangeSel){
+      leadRangePill.textContent = leadRangeSel.options[leadRangeSel.selectedIndex]?.text || "";
+    }
+    if(leadRefInput){
+      const all = leadRange === "all";
+      leadRefInput.disabled = all;
+      leadRefInput.style.opacity = all ? "0.55" : "1";
+      if(all && leadRangePill) leadRangePill.textContent = "All time";
+    }
+    const staffList = getStaffOptionsFromLeads(allLeads);
+
+    const staffSelect = $("l_staffFilter");
+    if(staffSelect){
+      const prev = staffSelect.value;
+      staffSelect.innerHTML = `<option value="">All staff</option>` + staffList.map(s=>`<option>${escapeHtml(s)}</option>`).join("");
+      // try keep selection
+      if(prev && staffList.includes(prev)) staffSelect.value = prev;
+    }
+
+    const staffFilter = (staffSelect && staffSelect.value) ? staffSelect.value.trim() : "";
+
+    // ---------- Today's appointments ----------
+    const today = todayISO();
+    const todays = allLeads
+      .filter(l=>l.apptDate === today)
+      .filter(l=>staffMatches(l, staffFilter))
+      .sort((a,b)=> leadApptTs(a) - leadApptTs(b));
+
+    const tBody = $("todayTbody");
+    if(tBody){
+      tBody.innerHTML = "";
+      if(todays.length===0){
+        tBody.innerHTML = `<tr><td colspan="10" class="muted" style="padding:14px 8px;">No appointments scheduled for today.</td></tr>`;
+      } else {
+        for(const l of todays){
+          const time = l.apptTime ? l.apptTime : "—";
+          const servedOptions = `<option value="" ${!l.servedBy ? "selected" : ""}>—</option>` + staffList.map(s=>`<option ${l.servedBy===s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("");
+          tBody.innerHTML += `
+            <tr>
+              <td>${escapeHtml(time)}</td>
+              <td>${escapeHtml(l.name)}</td>
+              <td>${escapeHtml(l.phone)}</td>
+              <td>${escapeHtml(l.source)}</td>
+              <td>${escapeHtml(l.capturedBy)}</td>
+              <td>
+                <select class="today_served" data-id="${escapeHtml(l.id)}" style="min-width:140px;">
+                  ${servedOptions}
+                </select>
+              </td>
+              <td>
+                <select class="today_status" data-id="${escapeHtml(l.id)}" style="min-width:140px;">
+                  <option value="" ${!l.apptStatus ? "selected" : ""}>—</option>
+                  <option ${l.apptStatus==="Scheduled" ? "selected" : ""}>Scheduled</option>
+                  <option ${l.apptStatus==="Attended" ? "selected" : ""}>Attended</option>
+                  <option ${l.apptStatus==="Cancelled" ? "selected" : ""}>Cancelled</option>
+                  <option ${l.apptStatus==="Rescheduled" ? "selected" : ""}>Rescheduled</option>
+                  <option ${l.apptStatus==="No-show" ? "selected" : ""}>No-show</option>
+                </select>
+              </td>
+              <td><span class="pill ${l.sale==="Yes" ? "ok" : (l.sale==="No" ? "danger" : "")}">${escapeHtml(l.sale || "—")}</span></td>
+              <td>${escapeHtml(l.saleRef || "—")}</td>
+              <td class="right" style="white-space:nowrap;">
+                <button type="button" class="l_edit mini" data-id="${escapeHtml(l.id)}">Edit</button>
+              </td>
+            </tr>
+          `;
+        }
+
+        tBody.querySelectorAll(".today_status").forEach(sel=>{
+          sel.onchange = ()=>{
+            const id = sel.getAttribute("data-id");
+            const leads = getLeads();
+            const idx = leads.findIndex(x=>x.id===id);
+            if(idx>=0){
+              leads[idx].apptStatus = sel.value;
+              save(LEADS_KEY, leads);
+              renderDashboard(); // keep KPIs in sync
+            }
+          };
+        });
+
+
+        tBody.querySelectorAll(".today_served").forEach(sel=>{
+          sel.onchange = ()=>{
+            const id = sel.getAttribute("data-id");
+            const leads = getLeads();
+            const idx = leads.findIndex(x=>x.id===id);
+            if(idx>=0){
+              leads[idx].servedBy = sel.value;
+              save(LEADS_KEY, leads);
+              renderDashboard();
+              renderLeads(); // keep list filters/options fresh
+            }
+          };
+        });
+
+        tBody.querySelectorAll(".l_edit").forEach(btn=>{
+          btn.onclick=()=>{
+            const id = btn.getAttribute("data-id");
+            const lead = getLeads().find(l=>l.id===id);
+            if(lead) openLeadEdit(lead);
+          };
+        });
+      }
+    }
+
+    // ---------- All leads (chronological) ----------
     const q = ($("l_search").value||"").toLowerCase().trim();
-    const leads = getLeads()
+
+    const leads = allLeads
+      .filter(l=> (leadRange === "all") ? true : inRange(l.dateCaptured, leadStart, leadEnd))
+      .filter(l=>staffMatches(l, staffFilter))
       .filter(l=>{
         if(!q) return true;
         return (l.name||"").toLowerCase().includes(q) ||
@@ -780,18 +990,19 @@
                (l.servedBy||"").toLowerCase().includes(q) ||
                (l.saleRef||"").toLowerCase().includes(q);
       })
-      .sort((a,b)=> (a.createdAt < b.createdAt ? 1 : -1));
+      .sort((a,b)=> leadApptTs(a) - leadApptTs(b));
 
     const tbody = $("leadsTbody");
     tbody.innerHTML = "";
 
     if(leads.length===0){
-      tbody.innerHTML = `<tr><td colspan="10" class="muted" style="padding:14px 8px;">No leads entered yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" class="muted" style="padding:14px 8px;">No leads entered yet.</td></tr>`;
       return;
     }
 
     for(const l of leads){
       const appt = (l.apptDate ? l.apptDate : "") + (l.apptTime ? ` ${l.apptTime}` : "");
+      const servedOptions = `<option value="" ${!l.servedBy ? "selected" : ""}>—</option>` + staffList.map(s=>`<option ${l.servedBy===s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("");
       tbody.innerHTML += `
         <tr>
           <td>${l.dateCaptured}</td>
@@ -801,8 +1012,13 @@
           <td>${escapeHtml(l.phone)}</td>
           <td>${escapeHtml(appt.trim() || "—")}</td>
           <td><span class="pill ${l.apptStatus ? "warn" : ""}">${escapeHtml(l.apptStatus || "—")}</span></td>
-          <td>${escapeHtml(l.saleRef || "—")}</td>
+          <td>
+            <select class="lead_served" data-id="${escapeHtml(l.id)}" style="min-width:140px;">
+              ${servedOptions}
+            </select>
+          </td>
           <td><span class="pill ${l.sale==="Yes" ? "ok" : (l.sale==="No" ? "danger" : "")}">${escapeHtml(l.sale || "—")}</span></td>
+          <td>${escapeHtml(l.saleRef || "—")}</td>
           <td class="right" style="white-space:nowrap; display:flex; gap:8px; justify-content:flex-end;">
             <button type="button" class="l_edit mini" data-id="${escapeHtml(l.id)}">Edit</button>
             <button type="button" class="l_del mini danger" data-id="${escapeHtml(l.id)}">Delete</button>
@@ -810,6 +1026,22 @@
         </tr>
       `;
     }
+
+
+    tbody.querySelectorAll(".lead_served").forEach(sel=>{
+      sel.onchange = ()=>{
+        const id = sel.getAttribute("data-id");
+        const leads = getLeads();
+        const idx = leads.findIndex(x=>x.id===id);
+        if(idx>=0){
+          leads[idx].servedBy = sel.value;
+          save(LEADS_KEY, leads);
+          renderDashboard();
+          // keep staff filter options consistent
+          renderLeads();
+        }
+      };
+    });
 
     tbody.querySelectorAll(".l_edit").forEach(btn=>{
       btn.onclick=()=>{
@@ -828,6 +1060,7 @@
       };
     });
   }
+
 
   $("leadForm").addEventListener("submit",(e)=>{
     e.preventDefault();
@@ -912,6 +1145,11 @@
   });
 
   $("l_search").addEventListener("input", renderLeads);
+  $("l_staffFilter").addEventListener("change", renderLeads);
+  $("refreshToday").addEventListener("click", renderLeads);
+  $("l_range").addEventListener("change", renderLeads);
+  $("l_refDate").addEventListener("change", renderLeads);
+
 
   // ---------------- Clear All ----------------
   $("resetAll").addEventListener("click", ()=>{
@@ -926,6 +1164,7 @@
   // ---------------- Init ----------------
   $("d_refDate").value = todayISO();
   $("c_date").value = todayISO();
+  $("l_refDate").value = todayISO();
   $("d_attrib").value = "served";
   resetCountsForm();
   resetLeadForm();
