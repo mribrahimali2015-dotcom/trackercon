@@ -97,7 +97,7 @@
       <div class="kpis">
         <div class="kpi"><div class="num" id="kpiNew">0</div><div class="lbl">New enquiries</div></div>
         <div class="kpi"><div class="num" id="kpiDetails">0</div><div class="lbl">Details provided</div></div>
-        <div class="kpi"><div class="num" id="kpiBookedCounts">0</div><div class="lbl">Appointments booked</div></div>
+        <div class="kpi"><div class="num" id="kpiBooked">0</div><div class="lbl">Appointments booked</div></div>
         <div class="kpi"><div class="num" id="kpiAttended">0</div><div class="lbl">Appointments attended</div></div>
         <div class="kpi"><div class="num" id="kpiSales">0</div><div class="lbl">Sales (ref verified)</div></div>
 
@@ -108,7 +108,7 @@
 
       <p class="muted small" style="margin:10px 0 0;">
         Notes:
-        <span class="badge">Booked</span> comes from Tab 1.
+        <span class="badge">Booked</span> comes from Tab 2 (Booked date/by on each lead).
         <span class="badge">Attended</span> = leads where status is <b>Attended</b>.
         <span class="badge">Sales</span> = leads where sale is <b>Yes</b> AND a valid <b>4-digit ref</b> is entered.
       </p>
@@ -130,7 +130,8 @@
     <section class="card">
       <h2 style="margin:0;font-size:16px;">Breakdown by Staff (selected timeframe)</h2>
       <p class="muted small" style="margin:6px 0 0;">
-        New/Details/Booked are credited to Tab 1 staff. Attended/Sales credit uses the dropdown above (Served by or Captured by).
+        New/Details are credited to Tab 1 staff (who handled the enquiry). Booked is credited to <b>Booked by</b> on each lead (Tab 2).
+        Attended/Sales credit uses the dropdown above (Served by or Captured by).
       </p>
       <table>
         <thead>
@@ -275,6 +276,12 @@
             <option>No-show</option>
           </select>
 
+          <label>Booked date (when the appointment was secured)</label>
+          <input id="l_bookedDate" type="date" />
+
+          <label>Booked by (who actually got it booked)</label>
+          <input id="l_bookedBy" type="text" placeholder="e.g., Jordan" />
+
           <label>Served by (who ran the appointment / closed the sale)</label>
           <input id="l_servedBy" type="text" placeholder="e.g., Amina" />
 
@@ -315,7 +322,7 @@
           <thead>
             <tr>
               <th>Time</th><th>Name</th><th>Phone</th><th>Source</th>
-              <th>Captured</th><th>Served</th><th>Status</th>
+              <th>Captured</th><th>Booked</th><th>Served</th><th>Status</th>
               <th>Sale</th><th>Ref</th><th class="right"></th>
             </tr>
           </thead>
@@ -346,7 +353,7 @@
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Source</th><th>Captured By</th>
+              <th>Date</th><th>Source</th><th>Captured By</th><th>Booked Date</th><th>Booked By</th>
               <th>Name</th><th>Phone</th>
               <th>Appt</th><th>Status</th>
               <th>Served</th>
@@ -427,7 +434,24 @@
 
   function bucketKey(date, source, staff){ return `${date}__${source}__${staff}`; }
   function getCounts(){ return load(COUNTS_KEY); }
-  function getLeads(){ return load(LEADS_KEY); }
+  function getLeads(){
+    const rows = load(LEADS_KEY);
+    let changed = false;
+    for(const l of rows){
+      if(typeof l.bookedDate === "undefined"){
+        // Back-compat: if an old lead has any appointment info, assume it was booked on capture date
+        const hasApptInfo = !!(l.apptDate || l.apptTime || l.apptStatus);
+        l.bookedDate = hasApptInfo ? (l.dateCaptured || "") : "";
+        changed = true;
+      }
+      if(typeof l.bookedBy === "undefined"){
+        l.bookedBy = (l.bookedDate && String(l.bookedDate).trim()) ? (l.capturedBy || "") : "";
+        changed = true;
+      }
+    }
+    if(changed) save(LEADS_KEY, rows);
+    return rows;
+  }
 
   function leadsByBucket(){
     const leads = getLeads();
@@ -437,6 +461,7 @@
   }
 
   // Lead status helpers
+  function leadIsBooked(l){ return !!(l.bookedDate && String(l.bookedDate).trim()); }
   function leadIsAttended(l){ return l.apptStatus === "Attended"; }
   function leadIsNoShow(l){ return l.apptStatus === "No-show"; }
   function leadIsCancelled(l){ return l.apptStatus === "Cancelled"; }
@@ -455,13 +480,14 @@
   function staffMatches(l, staffFilter){
     if(!staffFilter) return true;
     const f = normStaff(staffFilter);
-    return normStaff(l.capturedBy) === f || normStaff(l.servedBy) === f;
+    return normStaff(l.capturedBy) === f || normStaff(l.bookedBy) === f || normStaff(l.servedBy) === f;
   }
 
   function getStaffOptionsFromLeads(leads){
     const set = new Set();
     for(const l of leads){
       if(l.capturedBy && l.capturedBy.trim()) set.add(l.capturedBy.trim());
+      if(l.bookedBy && l.bookedBy.trim()) set.add(l.bookedBy.trim());
       if(l.servedBy && l.servedBy.trim()) set.add(l.servedBy.trim());
     }
     return Array.from(set).sort((a,b)=>a.localeCompare(b));
@@ -494,6 +520,9 @@
   $("goCountsFromLeads").addEventListener("click", ()=>setView("counts"));
 
   // ---------------- Dashboard attribution ----------------
+  function staffForLead_Booked(l){
+    return (l.bookedBy && l.bookedBy.trim()) ? l.bookedBy.trim() : (l.capturedBy || "—");
+  }
   function staffForLead_AttendedSales(l){
     const attrib = $("d_attrib").value; // "served" | "captured"
     if(attrib === "captured") return (l.capturedBy || "—");
@@ -508,23 +537,25 @@
 
     // Synchronised time filtering
     const counts = getCounts().filter(c=>inRange(c.date, start, end));
-    const leads = getLeads().filter(l=>inRange(l.dateCaptured, start, end));
+    const leadsAll = getLeads();
+    const leadsCapturedInRange = leadsAll.filter(l=>inRange(l.dateCaptured, start, end));
+    const leadsBookedInRange = leadsAll.filter(l=> leadIsBooked(l) && inRange(l.bookedDate, start, end));
 
     const totalNew = counts.reduce((s,r)=>s+r.newEnq,0);
     const totalDetails = counts.reduce((s,r)=>s+r.details,0);
-    const totalBookedCounts = counts.reduce((s,r)=>s+r.booked,0);
+    const totalBooked = leadsBookedInRange.length;
 
-    const totalAttended = leads.filter(leadIsAttended).length;
-    const totalSales = leads.filter(leadIsSale).length;
+    const totalAttended = leadsCapturedInRange.filter(leadIsAttended).length;
+    const totalSales = leadsCapturedInRange.filter(leadIsSale).length;
 
     $("kpiNew").textContent = totalNew;
     $("kpiDetails").textContent = totalDetails;
-    $("kpiBookedCounts").textContent = totalBookedCounts;
+    $("kpiBooked").textContent = totalBooked;
     $("kpiAttended").textContent = totalAttended;
     $("kpiSales").textContent = totalSales;
 
     // NEW KPIs
-    $("kpiDetailsToBooked").textContent = `${pct(totalBookedCounts, totalDetails).toFixed(1)}%`;
+    $("kpiDetailsToBooked").textContent = `${pct(totalBooked, totalDetails).toFixed(1)}%`;
     $("kpiAttendedToSales").textContent = `${pct(totalSales, totalAttended).toFixed(1)}%`;
 
     // By Source
@@ -533,9 +564,14 @@
       bySource[c.source] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       bySource[c.source].new += c.newEnq;
       bySource[c.source].details += c.details;
-      bySource[c.source].booked += c.booked;
     }
-    for(const l of leads){
+    // Booked is based on bookedDate
+    for(const l of leadsBookedInRange){
+      bySource[l.source] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
+      bySource[l.source].booked += 1;
+    }
+    // Attendance + sales are based on captured date timeframe (like before)
+    for(const l of leadsCapturedInRange){
       bySource[l.source] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       if(leadIsAttended(l)) bySource[l.source].attended += 1;
       if(leadIsNoShow(l)) bySource[l.source].noShow += 1;
@@ -572,22 +608,26 @@
 
     // By Staff
     const byStaff = {};
-    // Tab 1 staff credit for New/Details/Booked
+    // Tab 1 staff credit for New/Details (enquiry handling)
     for(const c of counts){
       byStaff[c.staff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
       byStaff[c.staff].new += c.newEnq;
       byStaff[c.staff].details += c.details;
-      byStaff[c.staff].booked += c.booked;
     }
-    // Attended/Sales credit via attribution dropdown
-    for(const l of leads){
-      const staff = staffForLead_AttendedSales(l);
-      byStaff[staff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
-      if(leadIsAttended(l)) byStaff[staff].attended += 1;
-      if(leadIsNoShow(l)) byStaff[staff].noShow += 1;
-      if(leadIsCancelled(l)) byStaff[staff].cancelled += 1;
-      if(leadIsRescheduled(l)) byStaff[staff].rescheduled += 1;
-      if(leadIsSale(l)) byStaff[staff].sales += 1;
+    // Booked credit (Booked by) + Attended/Sales credit (dropdown)
+    for(const l of leadsBookedInRange){
+      const bStaff = staffForLead_Booked(l);
+      byStaff[bStaff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
+      byStaff[bStaff].booked += 1;
+    }
+    for(const l of leadsCapturedInRange){
+      const aStaff = staffForLead_AttendedSales(l);
+      byStaff[aStaff] ??= { new:0, details:0, booked:0, attended:0, noShow:0, cancelled:0, rescheduled:0, sales:0 };
+      if(leadIsAttended(l)) byStaff[aStaff].attended += 1;
+      if(leadIsNoShow(l)) byStaff[aStaff].noShow += 1;
+      if(leadIsCancelled(l)) byStaff[aStaff].cancelled += 1;
+      if(leadIsRescheduled(l)) byStaff[aStaff].rescheduled += 1;
+      if(leadIsSale(l)) byStaff[aStaff].sales += 1;
     }
 
     const stBody = $("dashByStaff");
@@ -822,6 +862,8 @@
     $("l_apptDate").value = "";
     $("l_apptTime").value = "";
     $("l_apptStatus").value = "";
+    $("l_bookedDate").value = "";
+    $("l_bookedBy").value = "";
     $("l_servedBy").value = "";
     $("l_sale").value = "";
     $("l_saleRef").value = "";
@@ -843,6 +885,8 @@
     $("l_apptDate").value = lead.apptDate || "";
     $("l_apptTime").value = lead.apptTime || "";
     $("l_apptStatus").value = lead.apptStatus || "";
+    $("l_bookedDate").value = lead.bookedDate || "";
+    $("l_bookedBy").value = lead.bookedBy || "";
     $("l_servedBy").value = lead.servedBy || "";
     $("l_sale").value = lead.sale || "";
     $("l_saleRef").value = lead.saleRef || "";
@@ -901,7 +945,7 @@
     if(tBody){
       tBody.innerHTML = "";
       if(todays.length===0){
-        tBody.innerHTML = `<tr><td colspan="10" class="muted" style="padding:14px 8px;">No appointments scheduled for today.</td></tr>`;
+        tBody.innerHTML = `<tr><td colspan="11" class="muted" style="padding:14px 8px;">No appointments scheduled for today.</td></tr>`;
       } else {
         for(const l of todays){
           const time = l.apptTime ? l.apptTime : "—";
@@ -913,6 +957,7 @@
               <td>${escapeHtml(l.phone)}</td>
               <td>${escapeHtml(l.source)}</td>
               <td>${escapeHtml(l.capturedBy)}</td>
+              <td>${escapeHtml((l.bookedDate||"—") + (l.bookedBy ? ` • ${l.bookedBy}` : ""))}</td>
               <td>
                 <select class="today_served" data-id="${escapeHtml(l.id)}" style="min-width:140px;">
                   ${servedOptions}
@@ -987,6 +1032,7 @@
                (l.phone||"").toLowerCase().includes(q) ||
                (l.source||"").toLowerCase().includes(q) ||
                (l.capturedBy||"").toLowerCase().includes(q) ||
+               (l.bookedBy||"").toLowerCase().includes(q) ||
                (l.servedBy||"").toLowerCase().includes(q) ||
                (l.saleRef||"").toLowerCase().includes(q);
       })
@@ -996,7 +1042,7 @@
     tbody.innerHTML = "";
 
     if(leads.length===0){
-      tbody.innerHTML = `<tr><td colspan="11" class="muted" style="padding:14px 8px;">No leads entered yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" class="muted" style="padding:14px 8px;">No leads entered yet.</td></tr>`;
       return;
     }
 
@@ -1008,6 +1054,8 @@
           <td>${l.dateCaptured}</td>
           <td>${escapeHtml(l.source)}</td>
           <td>${escapeHtml(l.capturedBy)}</td>
+          <td>${escapeHtml(l.bookedDate || "—")}</td>
+          <td>${escapeHtml(l.bookedBy || "—")}</td>
           <td>${escapeHtml(l.name)}</td>
           <td>${escapeHtml(l.phone)}</td>
           <td>${escapeHtml(appt.trim() || "—")}</td>
@@ -1098,6 +1146,14 @@
     let apptStatus = $("l_apptStatus").value;
     if((apptDate || apptTime) && !apptStatus) apptStatus = "Scheduled";
 
+    // Booking attribution (Option A)
+    let bookedDate = $("l_bookedDate").value;
+    let bookedBy = $("l_bookedBy").value.trim();
+    // If any appointment info is present, assume it was booked today unless specified
+    if((apptDate || apptTime || apptStatus) && !bookedDate) bookedDate = todayISO();
+    // If it's booked but no booker entered, default to capturedBy for convenience
+    if(bookedDate && !bookedBy) bookedBy = (countsRow.staff || "").trim();
+
     const servedBy = $("l_servedBy").value.trim();
     const sale = $("l_sale").value;
     const saleRef = $("l_saleRef").value.trim();
@@ -1116,6 +1172,8 @@
         capturedBy: countsRow.staff,
         name, phone,
         apptDate, apptTime, apptStatus,
+        bookedDate,
+        bookedBy,
         servedBy,
         sale,
         saleRef
@@ -1133,6 +1191,8 @@
         capturedBy: countsRow.staff,
         name, phone,
         apptDate, apptTime, apptStatus,
+        bookedDate,
+        bookedBy,
         servedBy,
         sale,
         saleRef
