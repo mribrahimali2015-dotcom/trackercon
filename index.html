@@ -300,6 +300,7 @@
           <p class="muted" style="margin:6px 0 0;">Appointments pulled from leads where an <b>Appointment date</b> is set.</p>
         </div>
         <div class="inline">
+          <button type="button" id="apptAddBtn">Add appointment</button>
           <input id="a_date" type="date" aria-label="Appointments date" style="max-width:170px;" />
           <select id="a_status" aria-label="Appointment status filter" style="max-width:170px;">
             <option value="">All statuses</option>
@@ -942,6 +943,16 @@
         const id = sel.getAttribute('data-id');
         const leadStatus = sel.value;
         updateLeadById(id, { leadStatus });
+
+        // If details were received, jump to Tab 2 so staff can quickly fill name + phone.
+        // (Useful on shared iPad when the enquiry becomes a real lead.)
+        if(leadStatus === "Details received"){
+          const updated = getLeads().find(x=>x.id===id);
+          setView("leads");
+          if(updated) openLeadEdit(updated);
+          setTimeout(()=>{ try{ $("l_name")?.focus(); }catch{} }, 50);
+        }
+
         renderOpenLeads();
         renderLeads();
         renderDashboard();
@@ -1081,6 +1092,31 @@ function renderAppointments(){
         renderDashboard();
       };
     });
+  }
+
+  // Quick add appointment (shared iPad friendly)
+  function startAddAppointmentFlow(){
+    // Stay in Tab 2 but jump user into the form with sensible defaults
+    resetLeadForm();
+
+    const apptDate = $("a_date")?.value || todayISO();
+    $("l_leadStatus").value = "Booked";
+    $("l_apptDate").value = apptDate;
+    $("l_apptStatus").value = "Scheduled";
+
+    // If there are no buckets available, tell staff what to do
+    if($("l_bucket").disabled){
+      alert("No buckets available. Please add a Counts row in Tab 1 with Details Provided > 0 (e.g., Source = Self-booked) so you can save a lead.");
+      return;
+    }
+
+    // Make sure lead list filter doesn't hide what they've just added
+    if($("l_view")) $("l_view").value = "booked";
+    renderLeads();
+
+    // Scroll + focus for fast entry
+    try{ $("leadForm").scrollIntoView({ behavior: "smooth", block: "start" }); }catch{}
+    setTimeout(()=>{ try{ $("l_name")?.focus(); }catch{} }, 80);
   }
 
   function renderToday(){
@@ -1250,6 +1286,22 @@ function renderAppointments(){
     refreshBucketDropdown();
   }
 
+  // After increasing Details in Tab 1, jump straight to Tab 2 so staff can capture
+  // the new lead's name + number (like the "Booked By" quick-jump flow).
+  function maybeJumpToLeadEntry(bucketKey, newDetails, oldDetails){
+    if(!(Number(newDetails) > Number(oldDetails))) return;
+    const entered = (leadsByBucket()[bucketKey] || 0);
+    const remaining = Math.max(0, Number(newDetails) - entered);
+    if(remaining <= 0) return;
+
+    setView("leads");
+    resetLeadForm();
+    refreshBucketDropdown(bucketKey);
+    $("l_bucket").value = bucketKey;
+    // focus name first (then staff can tab to phone)
+    setTimeout(()=>{ try{ $("l_name")?.focus(); }catch{} }, 50);
+  }
+
   $("countsForm").addEventListener("submit",(e)=>{
     e.preventDefault();
     const date = $("c_date").value;
@@ -1267,6 +1319,11 @@ function renderAppointments(){
     const newKey = bucketKey(date, source, staff);
     const rows = getCounts();
 
+    // Track whether Details was increased so we can prompt immediate lead entry.
+    let oldDetails = 0;
+    const prevRow = rows.find(r => r.key === (existingEditKey || newKey));
+    if(prevRow) oldDetails = clampInt(prevRow.details);
+
     if(existingEditKey && existingEditKey !== newKey){
       if(rows.some(r=>r.key===newKey)) return alert("A counts row already exists for that Date + Source + Staff.");
       const idx = rows.findIndex(r=>r.key===existingEditKey);
@@ -1281,6 +1338,7 @@ function renderAppointments(){
       save(COUNTS_KEY, rows);
       resetCountsForm();
       renderCounts(); renderLeads(); renderDashboard();
+      maybeJumpToLeadEntry(newKey, details, oldDetails);
       return;
     }
 
@@ -1292,6 +1350,9 @@ function renderAppointments(){
     save(COUNTS_KEY, rows);
     resetCountsForm();
     renderCounts(); renderLeads(); renderDashboard();
+
+    // If Details increased, jump to Tab 2 to capture the new lead(s) immediately.
+    maybeJumpToLeadEntry(key, details, oldDetails);
   });
 
   $("c_search").addEventListener("input", renderCounts);
@@ -1567,6 +1628,7 @@ function renderAppointments(){
   $("a_date").addEventListener("change", renderAppointments);
   $("a_status").addEventListener("change", renderAppointments);
   $("a_search").addEventListener("input", renderAppointments);
+  $("apptAddBtn")?.addEventListener("click", startAddAppointmentFlow);
 
   // ---------------- Staff UI ----------------
   $("staffAddBtn").addEventListener("click", ()=>{
